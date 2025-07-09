@@ -20,22 +20,45 @@ class AM_Plugin {
         add_action( 'wp_ajax_am_upload', array( $this, 'handle_upload' ) );
         add_action( 'wp_ajax_am_remove_attachment', array( $this, 'remove_attachment' ) );
         add_action('wp_ajax_am_attach_image', array($this, 'attach_image'));
+        register_activation_hook( __FILE__, array( $this, 'flush_rewrite_rules' ) );
     }
 
     public function register_cpt() {
         $labels = array(
             'name'          => __( 'Albums', 'album-manager' ),
             'singular_name' => __( 'Album', 'album-manager' ),
+            'add_new_item'  => __( 'Ajouter un nouvel album', 'album-manager' ),
+            'edit_item'     => __( 'Modifier l\'album', 'album-manager' ),
         );
         $args = array(
             'labels'        => $labels,
-            'public'        => false,
-            'show_ui'       => false,
+            'public'        => true,
+            'publicly_queryable'  => true,  // Permettre les requêtes publiques
+            'show_ui'       => true,
             'show_in_menu'  => false,
+            'rewrite'             => array(
+                'slug' => 'galerie',  // Notre URL de base
+                'with_front' => false,
+                'pages' => true,
+                'feeds' => true,
+            ),
+            'capability_type'     => 'post',
+            'has_archive'         => false, // Pas besoin d'archive
             'hierarchical'  => true,
+            'menu_position'       => null,
             'supports'      => array( 'title' ),
+            'show_in_rest'        => true,  // Pour Gutenberg si nécessaire
+            'query_var'           => true,
         );
         register_post_type( 'album', $args );
+
+        error_log('CPT Album registered');
+        error_log('Rewrite rules: ' . print_r(get_option('rewrite_rules'), true));
+    }
+
+    public function flush_rewrite_rules() {
+        $this->register_cpt();
+        flush_rewrite_rules();
     }
 
     public function admin_menu() {
