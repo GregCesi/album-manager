@@ -17,6 +17,7 @@ class AM_Plugin {
         add_action( 'admin_menu', array( $this, 'admin_menu' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
         add_action( 'admin_post_am_save_album', array( $this, 'save_album' ) );
+        add_action( 'admin_post_am_delete_album', array( $this, 'delete_album' ) );
         add_action( 'wp_ajax_am_upload', array( $this, 'handle_upload' ) );
         add_action( 'wp_ajax_am_remove_attachment', array( $this, 'remove_attachment' ) );
         add_action('wp_ajax_am_attach_image', array($this, 'attach_image'));
@@ -132,6 +133,12 @@ class AM_Plugin {
         echo '<div class="wrap">';
         echo '<h1>' . ( $album ? 'Modifier l\'album' : 'Ajouter un album' ) . '</h1>';
 
+        if ($album) {
+            echo '<div class="notice notice-info">';
+            echo '<p><strong>URL de l\'album :</strong> <a href="' . get_permalink($album_id) . '" target="_blank">' . get_permalink($album_id) . '</a></p>';
+            echo '</div>';
+        }
+
         echo '<form method="post" action="' . admin_url( 'admin-post.php' ) . '" enctype="multipart/form-data">';
         wp_nonce_field( 'am_save_album' );
         echo '<input type="hidden" name="action" value="am_save_album" />';
@@ -190,6 +197,12 @@ class AM_Plugin {
         }
 
         submit_button( $album ? 'Mettre à jour' : 'Créer' );
+        
+        // Ajout du bouton de suppression si c'est un album existant
+        if ($album) {
+            echo ' <a href="' . wp_nonce_url(admin_url('admin-post.php?action=am_delete_album&album_id=' . $album_id), 'am_delete_album_' . $album_id) . '" class="button button-link-delete" onclick="return confirm(\'Êtes-vous sûr de vouloir supprimer définitivement cet album ? Cette action est irréversible.\')">Supprimer l\'album</a>';
+        }
+        
         echo '</form></div>';
     }
 
@@ -330,6 +343,51 @@ class AM_Plugin {
             'id' => $attachment_id,
             'url' => $thumb_url
         ));
+    }
+
+    /**
+     * Supprime un album et ses images associées
+     */
+    public function delete_album() {
+        if (!isset($_GET['album_id']) || !isset($_GET['_wpnonce'])) {
+            wp_die('Paramètres manquants');
+        }
+
+        $album_id = intval($_GET['album_id']);
+        
+        // Vérification du nonce
+        if (!wp_verify_nonce($_GET['_wpnonce'], 'am_delete_album_' . $album_id)) {
+            wp_die('Nonce de sécurité invalide');
+        }
+
+        // Vérification des droits
+        if (!current_user_can('delete_posts', $album_id)) {
+            wp_die('Vous n\'avez pas les droits nécessaires pour effectuer cette action');
+        }
+
+        // Récupérer toutes les images attachées à l'album
+        $attachments = get_children(array(
+            'post_parent' => $album_id,
+            'post_type' => 'attachment'
+        ));
+
+        // Supprimer toutes les images attachées
+        if (!empty($attachments)) {
+            foreach ($attachments as $attachment) {
+                wp_delete_attachment($attachment->ID, true);
+            }
+        }
+
+        // Supprimer l'album
+        $result = wp_delete_post($album_id, true);
+
+        if ($result === false) {
+            wp_die('Erreur lors de la suppression de l\'album');
+        }
+
+        // Rediriger vers la liste des albums avec un message de succès
+        wp_redirect(admin_url('upload.php?page=am-albums&deleted=1'));
+        exit;
     }
 }
 
