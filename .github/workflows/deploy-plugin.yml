@@ -1,0 +1,35 @@
+name: Deploy WP Plugin (no build)
+
+on:
+  push:
+    branches: [main] # mets master si besoin
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure target dir exists
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          script: |
+            mkdir -p "${{ secrets.HOSTINGER_PATH }}"
+
+      - name: Upload plugin files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          source: |
+            album-manager/album-manager.php
+            album-manager/admin.js
+            album-manager/admin.css
+          target: ${{ secrets.HOSTINGER_PATH }}
+          overwrite: true
