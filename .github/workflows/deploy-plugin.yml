@@ -14,8 +14,10 @@ jobs:
         run: |
           pwd
           ls -la
-          echo "----"
-          find . -maxdepth 2 -type f | sort
+          echo "---- Structure complète ----"
+          find . -type f -name "*.php" -o -name "*.js" -o -name "*.css" | sort
+          echo "---- Fichiers à la racine ----"
+          ls -la *.php *.js *.css 2>/dev/null || echo "Aucun fichier à la racine"
 
       - name: Ensure target dir exists
         uses: appleboy/ssh-action@v1.0.0
@@ -34,9 +36,10 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT }}
           source: |
-            album-manager.php
-            admin.js
-            admin.css
-          target: ${{ secrets.HOSTINGER_PATH }}
+            ./*.php
+            ./*.js
+            ./*.css
+            ./README.md
+          target: ${{ secrets.HOSTINGER_PATH }}/
           overwrite: true
           debug: true
