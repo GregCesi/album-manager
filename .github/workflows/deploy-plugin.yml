@@ -2,13 +2,20 @@ name: Deploy WP Plugin (no build)
 
 on:
   push:
-    branches: [main] # mets master si besoin
+    branches: [main] # ou master
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Debug workspace tree
+        run: |
+          pwd
+          ls -la
+          echo "----"
+          find . -maxdepth 2 -type f | sort
 
       - name: Ensure target dir exists
         uses: appleboy/ssh-action@v1.0.0
@@ -17,8 +24,7 @@ jobs:
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT }}
-          script: |
-            mkdir -p "${{ secrets.HOSTINGER_PATH }}"
+          script: mkdir -p "${{ secrets.HOSTINGER_PATH }}"
 
       - name: Upload plugin files
         uses: appleboy/scp-action@v0.1.7
@@ -33,3 +39,4 @@ jobs:
             admin.css
           target: ${{ secrets.HOSTINGER_PATH }}
           overwrite: true
+          debug: true
