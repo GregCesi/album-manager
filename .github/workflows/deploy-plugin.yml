@@ -28,8 +28,8 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT }}
           source: |
-            album-manager/album-manager.php
-            album-manager/admin.js
-            album-manager/admin.css
+            album-manager.php
+            admin.js
+            admin.css
           target: ${{ secrets.HOSTINGER_PATH }}
           overwrite: true
