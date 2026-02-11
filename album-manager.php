@@ -324,7 +324,7 @@ class AM_Plugin {
             $video_id = $this->extract_youtube_id( $youtube_url );
             if ( $video_id ) {
                 echo '<div id="am-youtube-preview" style="margin-top: 10px;"><strong>Aperçu :</strong><br>';
-                echo '<iframe width="400" height="225" src="https://www.youtube.com/embed/' . esc_attr( $video_id ) . '" frameborder="0" allowfullscreen></iframe></div>';
+                echo '<iframe width="400" height="225" src="https://www.youtube-nocookie.com/embed/' . esc_attr( $video_id ) . '" frameborder="0" allowfullscreen></iframe></div>';
             }
         }
         echo '</td></tr>';
