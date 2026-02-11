@@ -14,6 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AM_Plugin {
     public function __construct() {
         add_action( 'init', array( $this, 'register_cpt' ) );
+        add_action( 'init', array( $this, 'register_taxonomy' ) );
         add_action( 'admin_menu', array( $this, 'admin_menu' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
         add_action( 'admin_post_am_save_album', array( $this, 'save_album' ) );
@@ -57,8 +58,95 @@ class AM_Plugin {
         error_log('Rewrite rules: ' . print_r(get_option('rewrite_rules'), true));
     }
 
+    /**
+     * Register album_category taxonomy
+     */
+    public function register_taxonomy() {
+        $labels = array(
+            'name'              => __('Catégories d\'album', 'album-manager'),
+            'singular_name'     => __('Catégorie d\'album', 'album-manager'),
+            'search_items'      => __('Rechercher des catégories', 'album-manager'),
+            'all_items'         => __('Toutes les catégories', 'album-manager'),
+            'edit_item'         => __('Modifier la catégorie', 'album-manager'),
+            'update_item'       => __('Mettre à jour la catégorie', 'album-manager'),
+            'add_new_item'      => __('Ajouter une nouvelle catégorie', 'album-manager'),
+            'new_item_name'     => __('Nom de la nouvelle catégorie', 'album-manager'),
+            'menu_name'         => __('Catégories', 'album-manager'),
+        );
+
+        $args = array(
+            'labels'            => $labels,
+            'hierarchical'      => false,
+            'public'            => true,
+            'show_ui'           => true,
+            'show_admin_column' => true,
+            'show_in_nav_menus' => true,
+            'show_tagcloud'     => false,
+            'show_in_rest'      => true,
+            'rewrite'           => array('slug' => 'categorie-album'),
+            'capabilities'      => array(
+                'manage_terms' => 'manage_categories',
+                'edit_terms'   => 'manage_categories',
+                'delete_terms' => 'manage_categories',
+                'assign_terms' => 'edit_posts',
+            ),
+        );
+
+        register_taxonomy('album_category', array('album'), $args);
+
+        // Insert default terms on first activation
+        $this->ensure_default_terms();
+
+        error_log('Album taxonomy registered');
+    }
+
+    /**
+     * Ensure default category terms exist
+     */
+    private function ensure_default_terms() {
+        $default_terms = array(
+            'diaporama' => array(
+                'name' => 'Diaporama',
+                'slug' => 'diaporama',
+                'description' => 'Albums vidéo uniquement (YouTube)'
+            ),
+            'jardins-membres' => array(
+                'name' => 'Jardins membres',
+                'slug' => 'jardins-membres',
+                'description' => 'Jardins des membres (max 12 photos)'
+            ),
+            'visites-jardins' => array(
+                'name' => 'Visites de jardins',
+                'slug' => 'visites-jardins',
+                'description' => 'Visites de jardins organisées'
+            ),
+            'voyages' => array(
+                'name' => 'Voyages',
+                'slug' => 'voyages',
+                'description' => 'Albums de voyages'
+            ),
+        );
+
+        foreach ($default_terms as $term_slug => $term_data) {
+            if (!term_exists($term_slug, 'album_category')) {
+                $result = wp_insert_term(
+                    $term_data['name'],
+                    'album_category',
+                    array(
+                        'slug' => $term_data['slug'],
+                        'description' => $term_data['description']
+                    )
+                );
+                if (!is_wp_error($result)) {
+                    error_log("Album category created: {$term_data['name']}");
+                }
+            }
+        }
+    }
+
     public function flush_rewrite_rules() {
         $this->register_cpt();
+        $this->register_taxonomy();
         flush_rewrite_rules();
     }
 
@@ -115,7 +203,15 @@ class AM_Plugin {
             'order'          => 'ASC',
         ) );
         foreach ( $albums as $album ) {
-            echo '<li><a href="' . esc_url( admin_url( 'upload.php?page=am-edit-album&album_id=' . $album->ID ) ) . '">' . esc_html( get_the_title( $album ) ) . '</a>';
+            // Récupérer la catégorie de l'album
+            $category_badge = '';
+            $terms = wp_get_object_terms($album->ID, 'album_category', array('fields' => 'all'));
+            if (!empty($terms) && !is_wp_error($terms)) {
+                $term = $terms[0];
+                $category_badge = ' <span class="am-category-badge am-category-' . esc_attr($term->slug) . '">' . esc_html($term->name) . '</span>';
+            }
+
+            echo '<li><a href="' . esc_url( admin_url( 'upload.php?page=am-edit-album&album_id=' . $album->ID ) ) . '">' . esc_html( get_the_title( $album ) ) . '</a>' . $category_badge;
             $children = get_children( array( 'post_parent' => $album->ID, 'post_type' => 'album' ) );
             if ( $children ) {
                 echo '<ul>';
@@ -151,9 +247,56 @@ class AM_Plugin {
         echo '<tr><th><label for="am_title">Titre</label></th>';
         echo '<td><input type="text" name="am_title" id="am_title" class="regular-text" value="' . ( $album ? esc_attr( $album->post_title ) : '' ) . '" required /></td></tr>';
 
+        // Champ Catégorie
+        $current_category = '';
+        if ($album) {
+            $terms = wp_get_object_terms($album->ID, 'album_category', array('fields' => 'slugs'));
+            if (!empty($terms) && !is_wp_error($terms)) {
+                $current_category = $terms[0];
+            }
+        }
+
+        $categories = get_terms(array(
+            'taxonomy' => 'album_category',
+            'hide_empty' => false,
+        ));
+
+        echo '<tr><th><label for="am_category">Catégorie *</label></th>';
+        echo '<td><select name="am_category" id="am_category" class="regular-text" required>';
+        echo '<option value="">-- Sélectionner une catégorie --</option>';
+        if (!empty($categories) && !is_wp_error($categories)) {
+            foreach ($categories as $category) {
+                $selected = ($current_category === $category->slug) ? 'selected' : '';
+                echo '<option value="' . esc_attr($category->slug) . '" ' . $selected . '>' . esc_html($category->name) . '</option>';
+            }
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__('Choisissez la catégorie de l\'album', 'album-manager') . '</p>';
+        echo '</td></tr>';
+
         $date = $album ? get_post_meta( $album->ID, 'album_date', true ) : '';
-        echo '<tr><th><label for="am_date">Date</label></th>';
-        echo '<td><input type="date" name="am_date" id="am_date" value="' . esc_attr( $date ) . '" /></td></tr>';
+        $end_date = $album ? get_post_meta( $album->ID, 'album_end_date', true ) : '';
+
+        // Déterminer si on affiche deux dates (voyages + diaporama)
+        $show_date_range = in_array($current_category, ['voyages', 'diaporama'], true);
+        $single_display = $show_date_range ? 'style="display:none;"' : '';
+        $range_display = $show_date_range ? '' : 'style="display:none;"';
+        $single_disabled = $show_date_range ? 'disabled' : '';
+        $range_disabled = $show_date_range ? '' : 'disabled';
+
+        echo '<tr id="am-single-date-field" ' . $single_display . '>';
+        echo '<th><label for="am_date_single">Date</label></th>';
+        echo '<td><input type="date" name="am_date" id="am_date_single" value="' . esc_attr( $date ) . '" ' . $single_disabled . ' /></td></tr>';
+
+        echo '<tr id="am-date-start-field" ' . $range_display . '>';
+        echo '<th><label for="am_date_start">Date aller</label></th>';
+        echo '<td><input type="date" name="am_date" id="am_date_start" value="' . esc_attr( $date ) . '" ' . $range_disabled . ' /></td></tr>';
+
+        echo '<tr id="am-date-end-field" ' . $range_display . '>';
+        echo '<th><label for="am_end_date">Date retour</label></th>';
+        echo '<td><input type="date" name="am_end_date" id="am_end_date" value="' . esc_attr( $end_date ) . '" ' . $range_disabled . ' />';
+        echo '<p class="description">Laissez vide si l\'événement dure un seul jour</p>';
+        echo '</td></tr>';
 
         echo '<tr><th><label for="am_parent">Album parent</label></th><td>';
         wp_dropdown_pages( array(
@@ -165,16 +308,31 @@ class AM_Plugin {
             'exclude' => $album_id ? array( $album_id ) : array(),
         ) );
         echo '</td></tr>';
+
+        // Champ URL YouTube (uniquement pour Diaporama)
+        $youtube_url = $album ? get_post_meta( $album->ID, 'youtube_url', true ) : '';
+        $youtube_required = ($current_category === 'diaporama') ? 'required' : '';
+        $youtube_display = ($current_category === 'diaporama') ? '' : 'style="display:none;"';
+
+        echo '<tr id="am-youtube-field" ' . $youtube_display . '>';
+        echo '<th><label for="am_youtube_url">URL YouTube *</label></th>';
+        echo '<td><input type="url" name="am_youtube_url" id="am_youtube_url" class="regular-text" value="' . esc_attr( $youtube_url ) . '" placeholder="https://www.youtube.com/watch?v=..." ' . $youtube_required . ' />';
+        echo '<p class="description">URL YouTube obligatoire pour les albums Diaporama</p>';
+
+        // Aperçu de la vidéo si elle existe
+        if ( $youtube_url ) {
+            $video_id = $this->extract_youtube_id( $youtube_url );
+            if ( $video_id ) {
+                echo '<div id="am-youtube-preview" style="margin-top: 10px;"><strong>Aperçu :</strong><br>';
+                echo '<iframe width="400" height="225" src="https://www.youtube.com/embed/' . esc_attr( $video_id ) . '" frameborder="0" allowfullscreen></iframe></div>';
+            }
+        }
+        echo '</td></tr>';
+
         echo '</table>';
 
         if ( $album ) {
-            echo '<h2>Images de l\'album</h2>';
-            echo '<div id="am-dropzone" class="am-dropzone">';
-            echo '<button type="button" id="am-upload-browse" class="button button-primary">Sélectionner des images</button>';
-            echo '<p class="description">Glissez-déposez des images ici ou cliquez pour sélectionner</p>';
-            echo '</div>';
-
-            echo '<ul id="am-gallery" class="am-gallery">';
+            // Compter les images existantes
             $attachments = get_children( array(
                 'post_parent' => $album->ID,
                 'post_type' => 'attachment',
@@ -182,18 +340,45 @@ class AM_Plugin {
                 'orderby' => 'menu_order',
                 'order' => 'ASC',
             ) );
+            $photo_count = count($attachments);
 
-            foreach ( $attachments as $attachment ) {
-                $thumb_url = wp_get_attachment_thumb_url( $attachment->ID );
-                $full_url  = wp_get_attachment_url( $attachment->ID );
-                echo '<li data-id="' . esc_attr( $attachment->ID ) . '">';
-                echo '<a href="' . esc_url( $full_url ) . '" target="_blank">';
-                echo '<img src="' . esc_url( $thumb_url ) . '" alt="" />';
-                echo '</a>';
-                echo '<span class="am-remove" title="Supprimer">×</span>';
-                echo '</li>';
+            echo '<h2>Images de l\'album</h2>';
+
+            // Si c'est un diaporama, afficher un avertissement au lieu du dropzone
+            if ($current_category === 'diaporama') {
+                echo '<div class="notice notice-warning" id="am-diaporama-notice">';
+                echo '<p><strong>Les albums Diaporama ne peuvent contenir que des vidéos YouTube.</strong></p>';
+                echo '<p>Veuillez ajouter une URL YouTube ci-dessus. Les images ne peuvent pas être uploadées pour cette catégorie.</p>';
+                echo '</div>';
+            } else {
+                // Afficher le compteur pour jardins-membres
+                if ($current_category === 'jardins-membres') {
+                    echo '<div class="notice notice-info" id="am-photo-counter">';
+                    echo '<p><strong>Photos : <span id="am-photo-count">' . $photo_count . '</span>/12</strong></p>';
+                    if ($photo_count >= 12) {
+                        echo '<p>Limite de 12 photos atteinte. Supprimez des photos pour en ajouter de nouvelles.</p>';
+                    }
+                    echo '</div>';
+                }
+
+                echo '<div id="am-dropzone" class="am-dropzone">';
+                echo '<button type="button" id="am-upload-browse" class="button button-primary">Sélectionner des images</button>';
+                echo '<p class="description">Glissez-déposez des images ici ou cliquez pour sélectionner</p>';
+                echo '</div>';
+
+                echo '<ul id="am-gallery" class="am-gallery">';
+                foreach ( $attachments as $attachment ) {
+                    $thumb_url = wp_get_attachment_thumb_url( $attachment->ID );
+                    $full_url  = wp_get_attachment_url( $attachment->ID );
+                    echo '<li data-id="' . esc_attr( $attachment->ID ) . '">';
+                    echo '<a href="' . esc_url( $full_url ) . '" target="_blank">';
+                    echo '<img src="' . esc_url( $thumb_url ) . '" alt="" />';
+                    echo '</a>';
+                    echo '<span class="am-remove" title="Supprimer">×</span>';
+                    echo '</li>';
+                }
+                echo '</ul>';
             }
-            echo '</ul>';
         }
 
         submit_button( $album ? 'Mettre à jour' : 'Créer' );
@@ -210,8 +395,16 @@ class AM_Plugin {
         check_admin_referer( 'am_save_album' );
         $title  = sanitize_text_field( $_POST['am_title'] );
         $date   = sanitize_text_field( $_POST['am_date'] );
+        $end_date = isset( $_POST['am_end_date'] ) ? sanitize_text_field( $_POST['am_end_date'] ) : '';
         $parent = intval( $_POST['am_parent'] );
+        $youtube_url = isset( $_POST['am_youtube_url'] ) ? esc_url_raw( $_POST['am_youtube_url'] ) : '';
+        $category = isset( $_POST['am_category'] ) ? sanitize_text_field( $_POST['am_category'] ) : '';
         $album_id = isset( $_POST['album_id'] ) ? intval( $_POST['album_id'] ) : 0;
+
+        // Validation: Diaporama doit avoir une URL YouTube
+        if ($category === 'diaporama' && empty($youtube_url)) {
+            wp_die( __('Les albums Diaporama doivent obligatoirement avoir une URL YouTube.', 'album-manager'), __('Erreur de validation', 'album-manager'), array('back_link' => true) );
+        }
 
         $data = array(
             'post_title'  => $title,
@@ -230,6 +423,32 @@ class AM_Plugin {
         } else {
             delete_post_meta( $album_id, 'album_date' );
         }
+
+        // Sauvegarde de la date de fin (pour voyages et visites)
+        if ( $end_date ) {
+            update_post_meta( $album_id, 'album_end_date', $end_date );
+        } else {
+            delete_post_meta( $album_id, 'album_end_date' );
+        }
+
+        // Sauvegarde de l'URL YouTube (uniquement pour Diaporama)
+        if ( $category === 'diaporama' && $youtube_url ) {
+            update_post_meta( $album_id, 'youtube_url', $youtube_url );
+        } else {
+            // Supprimer l'URL YouTube si la catégorie n'est pas Diaporama
+            delete_post_meta( $album_id, 'youtube_url' );
+        }
+
+        // Sauvegarde de la catégorie
+        if ( $category ) {
+            $result = wp_set_object_terms( $album_id, $category, 'album_category' );
+            if ( is_wp_error( $result ) ) {
+                error_log( 'Erreur lors de la sauvegarde de la catégorie : ' . $result->get_error_message() );
+            } else {
+                error_log( 'Catégorie sauvegardée pour l\'album ' . $album_id . ': ' . $category );
+            }
+        }
+
         wp_redirect( admin_url( 'upload.php?page=am-edit-album&album_id=' . $album_id ) );
         exit;
     }
@@ -242,6 +461,31 @@ class AM_Plugin {
         if ( ! $album_id ) {
             wp_send_json_error( array( 'message' => 'Aucun album spécifié' ) );
             return;
+        }
+
+        // Validation basée sur la catégorie
+        $terms = wp_get_object_terms( $album_id, 'album_category', array('fields' => 'slugs') );
+        if ( !is_wp_error($terms) && !empty($terms) ) {
+            $category = $terms[0];
+
+            // Bloquer les images pour les albums Diaporama
+            if ( $category === 'diaporama' ) {
+                wp_send_json_error( array( 'message' => 'Les albums Diaporama ne peuvent contenir que des vidéos YouTube. Les images ne sont pas autorisées.' ) );
+                return;
+            }
+
+            // Vérifier la limite pour Jardins membres
+            if ( $category === 'jardins-membres' ) {
+                $existing_images = get_children( array(
+                    'post_parent' => $album_id,
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'image',
+                ) );
+                if ( count($existing_images) >= 12 ) {
+                    wp_send_json_error( array( 'message' => 'Limite de 12 photos atteinte pour les albums Jardins membres. Supprimez des photos pour en ajouter de nouvelles.' ) );
+                    return;
+                }
+            }
         }
 
         if ( ! function_exists( 'wp_handle_upload' ) ) {
@@ -329,6 +573,31 @@ class AM_Plugin {
             wp_send_json_error('Paramètres manquants');
         }
 
+        // Validation basée sur la catégorie
+        $terms = wp_get_object_terms( $album_id, 'album_category', array('fields' => 'slugs') );
+        if ( !is_wp_error($terms) && !empty($terms) ) {
+            $category = $terms[0];
+
+            // Bloquer les images pour les albums Diaporama
+            if ( $category === 'diaporama' ) {
+                wp_send_json_error( 'Les albums Diaporama ne peuvent contenir que des vidéos YouTube. Les images ne sont pas autorisées.' );
+                return;
+            }
+
+            // Vérifier la limite pour Jardins membres
+            if ( $category === 'jardins-membres' ) {
+                $existing_images = get_children( array(
+                    'post_parent' => $album_id,
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'image',
+                ) );
+                if ( count($existing_images) >= 12 ) {
+                    wp_send_json_error( 'Limite de 12 photos atteinte pour les albums Jardins membres. Supprimez des photos pour en ajouter de nouvelles.' );
+                    return;
+                }
+            }
+        }
+
         $result = wp_update_post(array(
             'ID' => $attachment_id,
             'post_parent' => $album_id
@@ -388,6 +657,14 @@ class AM_Plugin {
         // Rediriger vers la liste des albums avec un message de succès
         wp_redirect(admin_url('upload.php?page=am-albums&deleted=1'));
         exit;
+    }
+
+    /**
+     * Extract YouTube video ID from URL
+     */
+    private function extract_youtube_id( $url ) {
+        preg_match('/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/ ]{11})/', $url, $matches);
+        return isset( $matches[1] ) ? $matches[1] : false;
     }
 }
 

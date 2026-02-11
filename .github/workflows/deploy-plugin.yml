@@ -15,31 +15,49 @@ jobs:
           pwd
           ls -la
           echo "---- Structure complète ----"
-          find . -type f -name "*.php" -o -name "*.js" -o -name "*.css" | sort
-          echo "---- Fichiers à la racine ----"
-          ls -la *.php *.js *.css 2>/dev/null || echo "Aucun fichier à la racine"
+          find . -type f | head -20
+          echo "---- Nombre total de fichiers ----"
+          find . -type f | wc -l
 
-      - name: Ensure target dir exists
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          port: ${{ secrets.HOSTINGER_PORT }}
-          script: mkdir -p "${{ secrets.HOSTINGER_PATH }}"
+      - name: Create deployment package
+        run: |
+          # Créer un package avec tous les fichiers (sauf .git)
+          tar -czf plugin-package.tar.gz --exclude='.git*' --exclude='*.tar.gz' .
+          echo "Package créé:"
+          tar -tzf plugin-package.tar.gz | head -10
 
-      - name: Upload plugin files
+      - name: Upload plugin package
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT }}
-          source: |
-            ./*.php
-            ./*.js
-            ./*.css
-            ./README.md
-          target: ${{ secrets.HOSTINGER_PATH }}/
+          source: "plugin-package.tar.gz"
+          target: "/tmp/"
           overwrite: true
-          debug: true
+
+      - name: Deploy plugin on server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          script: |
+            # Créer le dossier plugin s'il n'existe pas
+            mkdir -p "${{ secrets.HOSTINGER_PATH }}/album-manager"
+            
+            # Nettoyer l'ancien contenu
+            rm -rf "${{ secrets.HOSTINGER_PATH }}/album-manager/*"
+            
+            # Extraire le nouveau contenu
+            cd "${{ secrets.HOSTINGER_PATH }}/album-manager"
+            tar -xzf /tmp/plugin-package.tar.gz
+            
+            # Nettoyer le fichier temporaire
+            rm /tmp/plugin-package.tar.gz
+            
+            # Vérifier le déploiement
+            echo "Déployé dans: ${{ secrets.HOSTINGER_PATH }}/album-manager"
+            ls -la "${{ secrets.HOSTINGER_PATH }}/album-manager"
